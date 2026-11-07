@@ -1,50 +1,68 @@
 # gitops-trustplane
 
-Local Docker Desktop Kubernetes deployment for Authentik, OpenBao, and Smallstep Step CA in the `trust-plane` namespace. Helm installs the applications and ingress-nginx; Kustomize applies the namespace and Ingress resources.
+A repeatable Docker Desktop Kubernetes GitOps PoC for Authentik, OpenBao, Step CA, and ingress-nginx. Install Argo CD once with the bootstrap script; Argo CD then installs and reconciles the stack from this repository using an app-of-apps layout.
 
-> Local-development baseline for review. It is not production-hardened: replace example credentials, configure backup and recovery, and review chart versions and security settings before broader use.
+> PoC only, not production-hardened. Example credentials are committed in the values files and must be replaced for any environment beyond disposable local testing. OpenBao is standalone, and the CA is not configured for production key protection.
 
 ## Prerequisites
 
-- Docker Desktop Kubernetes enabled
-- `kubectl`, Helm 3, and Kustomize installed
-- `helm` chart repositories reachable
+- Docker Desktop Kubernetes enabled and selected in the current `kubectl` context
+- Docker Desktop provisioned with enough CPU and memory for all components (start with at least 4 CPUs and 6 GiB RAM)
+- `kubectl` and network access to GitHub and the Helm chart repositories
+- This repository accessible to the cluster's Argo CD instance (it is public; configure repository credentials if you make it private)
 
-## Install
+## Bootstrap and deploy
 
 From the repository root:
 
 ```sh
-./scripts/install.sh
+./scripts/bootstrap-argocd.sh
 ```
 
-The script installs the charts from their configured repositories, then applies the Kustomize resources. Chart versions are intentionally not pinned in this initial draft; pin reviewed versions in `scripts/install.sh` before relying on repeatable deployments.
+The script installs a pinned Argo CD release into `argocd` (override `ARGOCD_VERSION` if desired), waits for its server deployment, then applies `argocd/root-application.yaml`. The root Application discovers the child Applications in `argocd/applications/`; those Applications install pinned Helm chart versions and apply the Ingress resources. Argo CD will continuously reconcile changes from the `main` branch.
+
+To monitor:
+
+```sh
+kubectl -n argocd get applications
+kubectl -n trust-plane get pods,svc,ingress
+```
+
+To open the Argo CD UI locally:
+
+```sh
+kubectl -n argocd port-forward svc/argocd-server 8080:443
+```
+
+Retrieve the initial admin password (change it after logging in):
+
+```sh
+kubectl -n argocd get secret argocd-initial-admin-secret \\
+  -o jsonpath='{.data.password}' | base64 -d; echo
+```
+
+Visit `https://localhost:8080` and log in as `admin`.
 
 ## Local hostnames
 
-Map the following names to `127.0.0.1` in your hosts file (Docker Desktop's LoadBalancer service is reachable locally):
+Map these names to `127.0.0.1` in your hosts file. Docker Desktop's LoadBalancer service is expected to be reachable locally:
 
 ```text
 127.0.0.1 authentik.myorg.local openbao.myorg.local step-ca.myorg.local
 ```
 
-Then use `http://authentik.myorg.local`, `http://openbao.myorg.local`, and `http://step-ca.myorg.local`. For HTTPS, create a TLS Secret named `myorg-local-tls` in `trust-plane` containing a certificate valid for all three hostnames. The Ingress TLS stanzas are ready to reference it.
+The Ingresses reference TLS Secret `myorg-local-tls` in `trust-plane`. For initial HTTP-only testing, remove the `tls` sections in `manifests/ingress/`; for HTTPS, create that Secret with a certificate whose SANs cover all three names. Do not commit private keys.
 
-## Check installation
+## Updating and removing
 
-```sh
-kubectl -n trust-plane get pods,svc,ingress
-kubectl -n trust-plane get svc
-```
+Commit changes to Git; Argo CD detects them and applies the desired state. Avoid running the old direct Helm install flow alongside Argo CD, since that would create competing release owners. To remove the PoC, delete the root Application and then remove Argo CD and the namespace deliberately; PVC cleanup can delete local state.
 
-Ingress backends assume the chart services are `authentik-server:80`, `openbao:8200`, and `step-ca:9000`. Verify the actual service names and ports from the command above; adjust the Ingress manifests if a chart release changes them.
+## Layout
 
-## Access OpenBao
+- `scripts/bootstrap-argocd.sh` — installs Argo CD and applies the root Application.
+- `argocd/root-application.yaml` — app-of-apps entry point.
+- `argocd/applications/` — child Applications for ingress-nginx, the apps, and Ingress manifests.
+- `components/*/values.yaml` — chart settings used by the Helm Applications.
+- `manifests/` — namespace and Ingress resources.
 
-This local baseline installs OpenBao in standalone mode. Initialize and unseal it after installation; do not store initialization output or unseal keys in Git. See the OpenBao documentation for the current initialization procedure.
-
-## Files
-
-- `scripts/install.sh` — installs the Helm releases and applies Kustomize resources.
-- `components/*/values.yaml` — chart values.
-- `kustomization.yaml`, `namespace.yaml`, `ingress/` — namespace and ingress resources.
+Chart versions are pinned in the child Application manifests for repeatability. Review and update chart versions intentionally; validate chart values against the selected versions before upgrading.
