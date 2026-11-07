@@ -91,9 +91,9 @@ metadata:
 spec:
   project: default
   sources:
-    - repoURL: https://openbao.github.io/openbao-helm-charts
+    - repoURL: https://openbao.github.io/openbao-helm
       chart: openbao
-      targetRevision: 0.9.0
+      targetRevision: 0.30.7
       helm:
         releaseName: openbao
         valueFiles:
