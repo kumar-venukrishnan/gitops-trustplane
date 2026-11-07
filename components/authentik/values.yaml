@@ -1,14 +1,33 @@
+# Small single-replica settings for a local Docker Desktop PoC.
+# Give Docker Desktop Kubernetes at least 4 CPUs and 6 GiB RAM for this
+# stack; resource limits do not reserve memory and cannot prevent node OOMs.
 authentik:
   secret_key: "change-this-to-a-long-random-secret-before-use"
   error_reporting:
     enabled: false
 
 server:
+  replicas: 1
   ingress:
     enabled: false
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
 
 worker:
   enabled: true
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
 
 postgresql:
   enabled: true
@@ -16,6 +35,22 @@ postgresql:
     username: authentik
     password: "change-this-database-password"
     database: authentik
+  primary:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
 
 redis:
   enabled: true
+  master:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
