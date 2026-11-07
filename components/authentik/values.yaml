@@ -5,6 +5,8 @@ authentik:
   secret_key: "change-this-to-a-long-random-secret-before-use"
   error_reporting:
     enabled: false
+  postgresql:
+    password: "change-this-database-password"
 
 server:
   replicas: 1
