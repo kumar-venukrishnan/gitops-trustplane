@@ -17,6 +17,6 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: step-ca
+                name: step-ca-step-certificates
                 port:
-                  number: 9000
+                  number: 443
