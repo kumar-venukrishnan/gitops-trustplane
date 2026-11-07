@@ -7,7 +7,7 @@ server:
   hostAliases:
     # PoC-only: bypasses the broken cluster DNS alias for Authentik from OpenBao.
     # Keep the OIDC hostname unchanged so TLS hostname and issuer validation still apply.
-    - ip: "10.96.181.67"
+    - ip: "10.96.68.81"
       hostnames:
         - "authentik.myorg.local"
   resources:
