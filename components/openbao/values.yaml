@@ -1,9 +1,36 @@
 server:
   standalone:
     enabled: true
+    config: |
+      ui = true
+
+      listener "tcp" {
+        tls_disable = 1
+        address = "[::]:8200"
+        cluster_address = "[::]:8201"
+      }
+
+      storage "pebbledb" {
+        path = "/openbao/data/pebbledb"
+      }
+
+      # Enable file-based audit logging for the PoC.
+      # Remove this block or set server.auditStorage.enabled=false to disable it.
+      audit {
+        type = "file"
+        path = "file/"
+
+        options {
+          file_path = "/openbao/audit/audit.log"
+        }
+      }
   dataStorage:
     enabled: true
     size: 2Gi
+  auditStorage:
+    enabled: true
+    size: 1Gi
+    mountPath: "/openbao/audit"
   hostAliases:
     # PoC-only: bypasses the broken cluster DNS alias for Authentik from OpenBao.
     # Keep the OIDC hostname unchanged so TLS hostname and issuer validation still apply.
