@@ -1,0 +1,21 @@
+authentik:
+  secret_key: "change-this-to-a-long-random-secret-before-use"
+  error_reporting:
+    enabled: false
+
+server:
+  ingress:
+    enabled: false
+
+worker:
+  enabled: true
+
+postgresql:
+  enabled: true
+  auth:
+    username: authentik
+    password: "change-this-database-password"
+    database: authentik
+
+redis:
+  enabled: true
