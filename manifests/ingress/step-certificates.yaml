@@ -3,6 +3,8 @@ kind: Ingress
 metadata:
   name: step-certificates
   namespace: trust-plane
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
 spec:
   ingressClassName: nginx
   tls:
