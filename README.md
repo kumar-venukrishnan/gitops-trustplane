@@ -1,8 +1,8 @@
 # gitops-trustplane
 
-A repeatable Docker Desktop Kubernetes GitOps PoC for Authentik, OpenBao, Step CA, and ingress-nginx. Install Argo CD once with the bootstrap script; Argo CD then installs and reconciles the stack from this repository using an app-of-apps layout.
+A repeatable Docker Desktop Kubernetes GitOps PoC for Authentik, OpenBao, Step CA, and ingress-nginx. Bootstrap Argo CD once; Argo CD then installs and reconciles the stack from this repository using an app-of-apps layout.
 
-> PoC only, not production-hardened. Example credentials are committed in the values files and must be replaced for any environment beyond disposable local testing. OpenBao is standalone, and the CA is not configured for production key protection.
+> PoC only, not production-hardened. Example credentials are committed in values files and are suitable only for disposable local testing. OpenBao is standalone, and the CA is not configured for production key protection.
 
 ## Prerequisites
 
@@ -19,7 +19,7 @@ From the repository root:
 ./scripts/bootstrap-argocd.sh
 ```
 
-The script installs a pinned Argo CD release into `argocd` (override `ARGOCD_VERSION` if desired), waits for its server deployment, then applies `argocd/root-application.yaml`. The root Application discovers the child Applications in `argocd/applications/`; those Applications install pinned Helm chart versions and apply the Ingress resources. Argo CD will continuously reconcile changes from the `main` branch.
+The script installs a pinned Argo CD release into `argocd`, configures its server for HTTP behind the local TLS-terminating ingress, waits for the server, then applies `argocd/root-application.yaml`. Override the Argo CD version with `ARGOCD_VERSION` if desired. The root Application discovers child Applications in `argocd/applications/`; those install pinned Helm chart versions and apply the Ingress resources. Argo CD continuously reconciles changes from `main`.
 
 To monitor:
 
@@ -28,34 +28,53 @@ kubectl -n argocd get applications
 kubectl -n trust-plane get pods,svc,ingress
 ```
 
-To open the Argo CD UI locally:
+## Local UI access
 
-```sh
-kubectl -n argocd port-forward svc/argocd-server 8080:443
+Map the local hostnames to `127.0.0.1` in your hosts file. These names are intended for local access only; do not configure router port forwarding or expose the ingress controller externally.
+
+```text
+127.0.0.1 argocd.myorg.local authentik.myorg.local openbao.myorg.local step-ca.myorg.local
 ```
 
-Retrieve the initial admin password (change it after logging in):
+`.local` can conflict with mDNS on some systems; if resolution is unreliable, use a reserved testing suffix such as `.test` and update the Ingress manifests and hosts file consistently.
+
+The Ingresses use TLS. Create a locally trusted certificate (for example, with `mkcert`) covering all four hostnames. Kubernetes Secrets are namespace-scoped, so create one copy in each namespace:
+
+```sh
+mkcert argocd.myorg.local authentik.myorg.local openbao.myorg.local step-ca.myorg.local
+
+kubectl -n argocd create secret tls myorg-local-tls \\
+  --cert=argocd.myorg.local+3.pem --key=argocd.myorg.local+3-key.pem
+kubectl create namespace trust-plane --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n trust-plane create secret tls myorg-local-tls \\
+  --cert=argocd.myorg.local+3.pem --key=argocd.myorg.local+3-key.pem
+```
+
+Run those Secret commands after bootstrap has created `argocd` and before the apps' Ingresses are used. If the generated mkcert filenames differ, use the actual filenames. Do not commit certificate private keys.
+
+Open the UIs at:
+
+- <https://argocd.myorg.local>
+- <https://authentik.myorg.local>
+- <https://openbao.myorg.local>
+- <https://step-ca.myorg.local>
+
+Argo CD's initial admin password can be retrieved with:
 
 ```sh
 kubectl -n argocd get secret argocd-initial-admin-secret \\
   -o jsonpath='{.data.password}' | base64 -d; echo
 ```
 
-Visit `https://localhost:8080` and log in as `admin`.
+Log in as `admin` and change the password. Keep this port-forward as a local recovery option if Ingress is unavailable:
 
-## Local hostnames
-
-Map these names to `127.0.0.1` in your hosts file. Docker Desktop's LoadBalancer service is expected to be reachable locally:
-
-```text
-127.0.0.1 authentik.myorg.local openbao.myorg.local step-ca.myorg.local
+```sh
+kubectl -n argocd port-forward svc/argocd-server 8080:443
 ```
-
-The Ingresses reference TLS Secret `myorg-local-tls` in `trust-plane`. For initial HTTP-only testing, remove the `tls` sections in `manifests/ingress/`; for HTTPS, create that Secret with a certificate whose SANs cover all three names. Do not commit private keys.
 
 ## Updating and removing
 
-Commit changes to Git; Argo CD detects them and applies the desired state. Avoid running the old direct Helm install flow alongside Argo CD, since that would create competing release owners. To remove the PoC, delete the root Application and then remove Argo CD and the namespace deliberately; PVC cleanup can delete local state.
+Commit changes to Git; Argo CD detects them and applies the desired state. Avoid running direct Helm commands against releases managed by Argo CD, since that creates competing release owners. To remove the PoC, delete the root Application and then remove Argo CD and the namespace deliberately; deleting PVCs can delete local state.
 
 ## Layout
 
@@ -63,6 +82,6 @@ Commit changes to Git; Argo CD detects them and applies the desired state. Avoid
 - `argocd/root-application.yaml` — app-of-apps entry point.
 - `argocd/applications/` — child Applications for ingress-nginx, the apps, and Ingress manifests.
 - `components/*/values.yaml` — chart settings used by the Helm Applications.
-- `manifests/` — namespace and Ingress resources.
+- `manifests/` — namespace and Ingress resources, including local Argo CD access.
 
-Chart versions are pinned in the child Application manifests for repeatability. Review and update chart versions intentionally; validate chart values against the selected versions before upgrading.
+Chart versions are pinned in child Application manifests for repeatability. Review and update chart versions intentionally; validate chart values against the selected versions before upgrading.
