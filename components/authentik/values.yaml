@@ -7,6 +7,7 @@ authentik:
     enabled: false
   postgresql:
     password: "change-this-database-password"
+    postgresPassword: "XDA4ckSmxM"
 
 server:
   replicas: 1
