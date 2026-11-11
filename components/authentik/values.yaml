@@ -12,7 +12,6 @@ authentik:
     enabled: false
   postgresql:
     password: "change-this-database-password"
-    postgresPassword: "XDA4ckSmxM"
 
 server:
   replicas: 1
@@ -41,8 +40,8 @@ postgresql:
   enabled: true
   image:
     registry: docker.io
-    repository: bitnamilegacy/postgresql
-    tag: 15.4.0-debian-11-r45
+    repository: library/postgres
+    tag: "17.10-bookworm"
   auth:
     username: authentik
     password: "change-this-database-password"
@@ -55,18 +54,3 @@ postgresql:
       limits:
         cpu: 500m
         memory: 512Mi
-
-redis:
-  enabled: true
-  image:
-    registry: docker.io
-    repository: bitnamilegacy/redis
-    tag: 7.2.3-debian-11-r2
-  master:
-    resources:
-      requests:
-        cpu: 50m
-        memory: 64Mi
-      limits:
-        cpu: 200m
-        memory: 256Mi
