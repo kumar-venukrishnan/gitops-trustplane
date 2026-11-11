@@ -1,6 +1,11 @@
 # Small single-replica settings for a local Docker Desktop PoC.
 # Give Docker Desktop Kubernetes at least 4 CPUs and 6 GiB RAM for this
 # stack; resource limits do not reserve memory and cannot prevent node OOMs.
+global:
+  image:
+    repository: ghcr.io/goauthentik/server
+    tag: "2024.12.5"
+    pullPolicy: IfNotPresent
 authentik:
   secret_key: "change-this-to-a-long-random-secret-before-use"
   error_reporting:
