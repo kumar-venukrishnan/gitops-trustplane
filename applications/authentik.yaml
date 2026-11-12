@@ -23,6 +23,7 @@ spec:
     namespace: trust-plane
   syncPolicy:
     automated:
-      enabled: false
+      prune: true
+      selfHeal: true
     syncOptions:
       - CreateNamespace=true
