@@ -8,7 +8,7 @@ spec:
   source:
     repoURL: https://github.com/kumar-venukrishnan/gitops-trustplane.git
     targetRevision: main
-    path: argocd/applications
+    path: applications
     directory:
       recurse: true
   destination:

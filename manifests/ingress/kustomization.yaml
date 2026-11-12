@@ -3,4 +3,3 @@ kind: Kustomization
 resources:
   - authentik-ingress.yaml
   - openbao-ingress.yaml
-  - step-certificates.yaml

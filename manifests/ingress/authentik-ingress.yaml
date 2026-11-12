@@ -8,7 +8,7 @@ spec:
   tls:
     - hosts:
         - authentik.myorg.local
-      secretName: myorg-local-tls
+      secretName: authentik-tls
   rules:
     - host: authentik.myorg.local
       http:

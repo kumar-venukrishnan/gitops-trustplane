@@ -1,127 +1,111 @@
-# gitops-trustplane
+# GitOps trust plane (local PoC)
 
-A repeatable Docker Desktop Kubernetes GitOps PoC for Authentik, OpenBao, Step CA, and ingress-nginx. The install script bootstraps Argo CD; Argo CD installs and reconciles the stack from this repository.
+A Docker Desktop Kubernetes PoC managed by Argo CD for ingress-nginx, Step CA, cert-manager, Authentik, and OpenBao. Existing Helm chart versions and application values are retained; the child Applications are split into files and ordered by sync wave.
 
-> PoC only, not production-hardened. Example credentials in values files are for disposable local testing. OpenBao is standalone and uses Shamir sealing; protect its initialization keys and root token. The CA is not configured for production key protection.
+> PoC only, not production-hardened. Replace example application credentials in the values files before use. Protect OpenBao initialization keys and Step CA private material.
 
 ## Prerequisites
 
 - Docker Desktop Kubernetes enabled and selected in the current `kubectl` context.
 - At least 4 CPUs and 6 GiB RAM allocated to Docker Desktop.
-- `kubectl`, OpenSSL 1.1.1+, and network access to GitHub and the Helm chart repositories.
+- `kubectl`, `python3`, and network access to GitHub and the Helm chart repositories.
 - This repository accessible to Argo CD (configure repository credentials if private).
 
-## Bootstrap and deploy
+## Deploy
 
 From the repository root:
 
 ```sh
 ./scripts/install.sh
 kubectl -n argocd get applications
-kubectl -n trust-plane get pods,svc,ingress
 ```
 
-The script installs the pinned Argo CD release and applies the root Application. Argo CD then discovers child Applications and reconciles changes from `main`. Avoid running Helm commands directly against Argo CD-managed releases.
+Applications are organized by Argo CD sync wave:
 
-## Local UI access and TLS
+| Wave | Components |
+| --- | --- |
+| 0 | `trust-plane` namespace |
+| 1 | ingress-nginx |
+| 2 | Step CA |
+| 3 | cert-manager and the Smallstep Step Issuer controller/CRDs |
+| 4 | Step CA-backed Certificate resources |
+| 5 | Authentik and OpenBao |
+| 6 | Authentik, OpenBao, and Argo CD Ingresses |
 
-Map local hostnames to `127.0.0.1` in your hosts file. Do not expose the ingress externally:
+Once Step CA has completed its first bootstrap and the Step Issuer controller is installed, run the local credential bootstrap:
+
+```sh
+./scripts/bootstrap-step-issuer.sh
+```
+
+The script reads Step CA's generated root certificate and provisioner password from the cluster, creates a dedicated Kubernetes Secret for the issuer password, and applies a `StepClusterIssuer` with the matching CA bundle and provisioner key ID. The password is not printed or committed. It is expected to be run locally with a `kubectl` context that can administer the cluster. If the resources are not ready yet, the script waits for them and can be run again safely.
+
+The issuer and password Secret are intentionally bootstrapped locally because Step CA generates its root and provisioner credentials during its initial bootstrap. The Certificate resources in Git reference that issuer and cause cert-manager to create the TLS Secrets; do not create the workload TLS Secrets manually.
+
+Add local host mappings for the UIs:
 
 ```text
-127.0.0.1 argocd.myorg.local authentik.myorg.local openbao.myorg.local step-ca.myorg.local
+127.0.0.1 argocd.myorg.local authentik.myorg.local openbao.myorg.local
 ```
 
-`.local` may conflict with mDNS; use a reserved testing suffix such as `.test` if needed and update the Ingress manifests and hosts file consistently.
-
-Create a local CA and certificate for the four hostnames (run from the repository root):
+Trust the Step CA root certificate on your computer to avoid browser certificate warnings. Retrieve the public root certificate with:
 
 ```sh
-mkdir -p local-tls
-umask 077
-openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
-  -keyout local-tls/local-ca.key -out local-tls/local-ca.crt \
-  -subj "/CN=gitops-trustplane local CA" \
-  -addext "basicConstraints=critical,CA:TRUE" \
-  -addext "keyUsage=critical,keyCertSign,cRLSign"
-openssl req -new -newkey rsa:2048 -nodes \
-  -keyout local-tls/myorg-local.key -out local-tls/myorg-local.csr \
-  -subj "/CN=argocd.myorg.local"
-cat > local-tls/myorg-local.ext <<'EOF'
-basicConstraints=CA:FALSE
-keyUsage=critical,digitalSignature,keyEncipherment
-extendedKeyUsage=serverAuth
-subjectAltName=DNS:argocd.myorg.local,DNS:authentik.myorg.local,DNS:openbao.myorg.local,DNS:step-ca.myorg.local
-EOF
-openssl x509 -req -in local-tls/myorg-local.csr \
-  -CA local-tls/local-ca.crt -CAkey local-tls/local-ca.key -CAcreateserial \
-  -out local-tls/myorg-local.crt -days 825 -sha256 \
-  -extfile local-tls/myorg-local.ext
+kubectl -n trust-plane get configmap step-ca-step-certificates-certs -o jsonpath='{.data.root_ca\.crt}' > step-ca-root.crt
 ```
 
-Trust `local-tls/local-ca.crt` on your computer. After running the install script, create TLS Secrets in both namespaces:
-
-```sh
-kubectl -n argocd create secret tls myorg-local-tls \
-  --cert=local-tls/myorg-local.crt --key=local-tls/myorg-local.key
-kubectl create namespace trust-plane --dry-run=client -o yaml | kubectl apply -f -
-kubectl -n trust-plane create secret tls myorg-local-tls \
-  --cert=local-tls/myorg-local.crt --key=local-tls/myorg-local.key
-```
-
-Open the UIs at <https://argocd.myorg.local>, <https://authentik.myorg.local>, <https://openbao.myorg.local>, and <https://step-ca.myorg.local>.
-
-Argo CD's initial admin password is available with:
-
-```sh
-kubectl -n argocd get secret argocd-initial-admin-secret \
-  -o jsonpath='{.data.password}' | base64 -d; echo
-```
-
-Log in as `admin` and change it. For local recovery if Ingress is unavailable:
-
-```sh
-kubectl -n argocd port-forward svc/argocd-server 8080:443
-```
+Step CA is kept cluster-internal; it does not depend on an Ingress or a certificate issued by itself.
 
 ## Authentik administrator
 
-On a new deployment, visit <https://authentik.myorg.local/if/flow/initial-setup/> and complete the setup flow to create the initial administrator. If you need to recover the default `akadmin` account password, generate a one-time recovery link from the server pod:
+On a new deployment, visit `https://authentik.myorg.local/if/flow/initial-setup/` and complete the setup flow. For local recovery of the default `akadmin` account:
 
 ```sh
-kubectl -n trust-plane exec deployment/authentik-server -- \
-  ak create_recovery_key 10 akadmin
+kubectl -n trust-plane exec deployment/authentik-server -- ak create_recovery_key 10 akadmin
 ```
 
-Open the URL printed by the command and set a new password. Treat the URL as a secret; do not commit or share it.
+Treat the printed recovery URL as a secret.
 
 ## OpenBao initialization and unsealing
 
-OpenBao starts uninitialized and unsealed state is required for readiness. Initialize it once, after the pod is running:
+OpenBao starts uninitialized. Initialize it once after the pod is running:
 
 ```sh
-kubectl -n trust-plane exec -it openbao-0 -- \
-  bao operator init -key-shares=5 -key-threshold=3
+kubectl -n trust-plane exec -it openbao-0 -- bao operator init -key-shares=5 -key-threshold=3
 ```
 
-Securely store the five generated unseal keys and initial root token outside Git. To unseal, run the following command three times and enter a different saved key each time:
+Securely store the generated unseal keys and root token outside Git. To unseal, run the following command three times, entering a different saved key each time:
 
 ```sh
 kubectl -n trust-plane exec -it openbao-0 -- bao operator unseal
 ```
 
-Verify with `kubectl -n trust-plane exec openbao-0 -- bao status`. OpenBao seals again after a pod restart; repeat the unseal steps, but **do not initialize again**. Never delete its PVC unless you intend to discard its data. This manual Shamir process is for the local PoC, not production.
+OpenBao seals after a pod restart; unseal it again, but do not initialize it again. Never delete its PVC unless you intend to destroy its data.
 
-## Updating and removing
+## Argo CD access
 
-Commit changes to Git; Argo CD detects and applies the desired state. To remove the PoC, delete the root Application, then remove Argo CD and the namespace deliberately; deleting PVCs can delete local state.
+The Argo CD ingress certificate is issued into the `argocd` namespace by the same `StepClusterIssuer`. For local recovery if ingress is unavailable:
+
+```sh
+kubectl -n argocd port-forward svc/argocd-server 8080:443
+```
+
+The initial admin password is available with:
+
+```sh
+kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d; echo
+```
+
+Log in as `admin` and change it.
 
 ## Layout
 
-- `scripts/install.sh` — user-facing bootstrap entry point.
-- `scripts/bootstrap-argocd.sh` — installs Argo CD and applies the root Application.
 - `argocd/root-application.yaml` — app-of-apps entry point.
-- `argocd/applications/` — child Applications.
-- `components/*/values.yaml` — Helm chart settings.
-- `manifests/` — namespace and Ingress resources.
+- `applications/` — individual child Application manifests with wave annotations.
+- `components/*/values.yaml` — pinned Helm chart settings.
+- `manifests/namespace/` — namespace resources.
+- `manifests/pki/` — certificate resources issued by Step CA.
+- `manifests/ingress/` — workload Ingresses using cert-manager-managed TLS Secrets.
+- `scripts/bootstrap-step-issuer.sh` — local, repeatable Step CA issuer bootstrap.
 
 Chart versions are pinned in child Application manifests. Review and update versions intentionally, validating chart values against the selected versions.
