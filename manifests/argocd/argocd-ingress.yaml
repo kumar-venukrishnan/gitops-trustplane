@@ -8,7 +8,7 @@ spec:
   tls:
     - hosts:
         - argocd.myorg.local
-      secretName: myorg-local-tls
+      secretName: argocd-tls
   rules:
     - host: argocd.myorg.local
       http:

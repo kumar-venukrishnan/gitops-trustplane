@@ -8,7 +8,7 @@ spec:
   tls:
     - hosts:
         - openbao.myorg.local
-      secretName: myorg-local-tls
+      secretName: openbao-tls
   rules:
     - host: openbao.myorg.local
       http:
